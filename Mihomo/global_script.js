@@ -238,7 +238,7 @@ const allRegionDefinitions = [
     icon: 'https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/China_Map.png',
   },
   {
-    name: 'TW台湾省',
+    name: 'TW台湾',
     regex: /台湾|台灣|🇹🇼|tw|taiwan|tai wan/i,
     icon: 'https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/China.png',
   },
@@ -754,7 +754,7 @@ function main(config) {
         ...groupBaseOption,
         name: r.name,
         type: 'url-test',
-        tolerance: 100,
+        tolerance: 50,
         icon: r.icon,
         proxies: groupData.proxies,
       })

@@ -13,6 +13,15 @@ function stringToArray(val) {
     .filter((item) => item.length > 0)
 }
 
+function stringToList(val) {
+  if (Array.isArray(val)) return val.map((item) => String(item).trim()).filter(Boolean)
+  if (typeof val !== 'string') return []
+  return val
+    .split(/[;,]/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+}
+
 // --- 1. 静态配置区域 ---
 
 const _skipIps =
@@ -82,7 +91,7 @@ args = {
 let {
   enable = args.enable || true,
   ruleSet = args.ruleSet || 'all', // 支持 'all' 或 'openai,youtube,ads' 这种格式
-  regionSet = args.regionSet || 'all', // 匹配 regionDefinitions.name 前两个字母 (严格大小写)
+  regionSet = args.regionSet || 'all', // 匹配 regionDefinitions.name 前两个字母
   interfaceName = args.interfaceName || '',
   excludeHighPercentage = !!args.excludeHighPercentage || false,
   globalRatioLimit = args.globalRatioLimit || 2,
@@ -177,7 +186,7 @@ let ruleOptions = {
 if (ruleSet === 'all') {
   Object.keys(ruleOptions).forEach((key) => (ruleOptions[key] = true))
 } else if (typeof ruleSet === 'string') {
-  const enabledKeys = ruleSet.split(';').map((s) => s.trim())
+  const enabledKeys = stringToList(ruleSet)
   enabledKeys.forEach((key) => {
     if (Object.prototype.hasOwnProperty.call(ruleOptions, key)) {
       ruleOptions[key] = true
@@ -278,10 +287,10 @@ let regionDefinitions = []
 if (regionSet === 'all') {
   regionDefinitions = allRegionDefinitions
 } else {
-  const enabledRegions = regionSet.split(';').map((s) => s.trim())
+  const enabledRegions = stringToList(regionSet).map((s) => s.toUpperCase())
   regionDefinitions = allRegionDefinitions.filter((r) => {
     const prefix = r.name.substring(0, 2) // 获取前两个字母
-    return enabledRegions.includes(prefix)
+    return enabledRegions.includes(prefix.toUpperCase())
   })
 }
 
@@ -358,7 +367,13 @@ const ruleProviders = {
 
 // 倍率正则预编译
 const multiplierRegex =
-  /(?<=[xX✕✖⨉倍率])([1-9]+(\.\d+)*|0{1}\.\d+)(?=[xX✕✖⨉倍率])*/i
+  /(?:^|[^A-Za-z0-9-])(?:([1-9]+(?:\.\d+)?|0\.\d+)\s*(?:[xX✕✖⨉]|倍|倍率)|(?:倍率|[xX✕✖⨉])\s*([1-9]+(?:\.\d+)?|0\.\d+)(?![A-Za-z0-9]))/i
+
+function getMultiplier(name) {
+  const match = multiplierRegex.exec(name)
+  if (!match) return null
+  return parseFloat(match[1] || match[2])
+}
 
 // --- 2. 服务规则数据结构 ---
 // Icons 更新为 GitHub Raw
@@ -591,6 +606,9 @@ function main(config) {
 
   const proxies = config?.proxies || []
   const proxyCount = proxies.length
+  const originalProxyGroups = Array.isArray(config?.['proxy-groups'])
+    ? config['proxy-groups']
+    : []
   const proxyProviderCount =
     typeof config?.['proxy-providers'] === 'object'
       ? Object.keys(config['proxy-providers']).length
@@ -717,34 +735,65 @@ function main(config) {
         proxies: [],
       })
   )
-  const otherProxies = []
+  const matchedProxyNames = new Set()
+  const availableProxyNames = []
+  const availableProxyNameSet = new Set()
+
+  const addRegionProxy = (regionName, proxyName) => {
+    const group = regionGroups[regionName]
+    if (!group || !availableProxyNameSet.has(proxyName)) return false
+    if (!group.proxies.includes(proxyName)) {
+      group.proxies.push(proxyName)
+    }
+    matchedProxyNames.add(proxyName)
+    return true
+  }
 
   for (let i = 0; i < proxyCount; i++) {
     const proxy = proxies[i]
     const name = proxy.name
-    let matched = false
 
     // 检查倍率
     if (excludeHighPercentage) {
-      const match = multiplierRegex.exec(name)
-      if (match && parseFloat(match[1]) > globalRatioLimit) {
+      const multiplier = getMultiplier(name)
+      if (multiplier && multiplier > globalRatioLimit) {
         continue
       }
     }
 
+    availableProxyNames.push(name)
+    availableProxyNameSet.add(name)
+
     // 尝试匹配地区
     for (const region of regionDefinitions) {
       if (region.regex.test(name)) {
-        regionGroups[region.name].proxies.push(name)
-        matched = true
+        addRegionProxy(region.name, name)
         break
       }
     }
-
-    if (!matched) {
-      otherProxies.push(name)
-    }
   }
+
+  originalProxyGroups.forEach((group) => {
+    if (!Array.isArray(group?.proxies)) return
+
+    const groupName = String(group.name || '').trim().toUpperCase()
+    const matchedRegion = regionDefinitions.find((region) => {
+      const prefix = region.name.substring(0, 2).toUpperCase()
+      const nextChar = groupName.charAt(prefix.length)
+      return (
+        groupName === prefix ||
+        (groupName.startsWith(prefix) && !/[A-Z0-9]/.test(nextChar))
+      )
+    })
+
+    if (!matchedRegion) return
+
+    group.proxies.forEach((proxyName) => {
+      addRegionProxy(matchedRegion.name, proxyName)
+    })
+  })
+
+  const otherProxies = availableProxyNames.filter((name) => !matchedProxyNames.has(name))
 
   const generatedRegionGroups = []
   regionDefinitions.forEach((r) => {

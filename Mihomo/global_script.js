@@ -13,6 +13,10 @@ function stringToArray(val) {
     .filter((item) => item.length > 0)
 }
 
+function uniqueList(items) {
+  return [...new Set(items.filter(Boolean))]
+}
+
 // --- 1. 静态配置区域 ---
 
 const _skipIps =
@@ -157,6 +161,7 @@ let ruleOptions = {
   youtube: true,
   bahamut: true,
   netflix: true,
+  steam: true,
   tiktok: true,
   disney: true,
   pixiv: true,
@@ -344,6 +349,18 @@ const groupBaseOption = {
   'max-failed-times': 3,
   hidden: false,
 }
+const dedicatedProxyGroupDefinitions = [
+  {
+    name: 'NETFLIX专用',
+    regex: /netflix|奈飞|网飞/i,
+    icon: 'https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Netflix.png',
+  },
+  {
+    name: '下载专用',
+    regex: /(?:^|[-_\s])D\d+(?:[-_\s]|$)|download|下载/i,
+    icon: 'https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Download.png',
+  },
+]
 
 // 预定义 Rule Providers
 const ruleProviders = {
@@ -443,6 +460,21 @@ const serviceConfigs = [
     icon: 'https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Netflix.png',
     url: 'https://api.fast.com/netflix/speedtest/v2?https=true',
     rules: ['GEOSITE,netflix,NETFLIX'],
+  },
+  {
+    key: 'steam',
+    name: 'Steam',
+    icon: 'https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Steam.png',
+    url: 'https://store.steampowered.com/favicon.ico',
+    rules: [
+      'DOMAIN-SUFFIX,steamcontent.com,直连',
+      'DOMAIN-SUFFIX,steamserver.net,直连',
+      'DOMAIN-SUFFIX,steamcdn-a.akamaihd.net,直连',
+      'DOMAIN-SUFFIX,steampipe.akamaized.net,直连',
+      'GEOSITE,category-game-platforms-download@cn,直连',
+      'GEOSITE,steam@cn,Steam',
+      'GEOSITE,steam,Steam',
+    ],
   },
   {
     key: 'tiktok',
@@ -717,6 +749,14 @@ function main(config) {
         proxies: [],
       })
   )
+  const dedicatedProxyGroups = {}
+  dedicatedProxyGroupDefinitions.forEach(
+    (g) =>
+      (dedicatedProxyGroups[g.name] = {
+        ...g,
+        proxies: [],
+      })
+  )
   const otherProxies = []
 
   for (let i = 0; i < proxyCount; i++) {
@@ -731,6 +771,12 @@ function main(config) {
         continue
       }
     }
+
+    dedicatedProxyGroupDefinitions.forEach((group) => {
+      if (group.regex.test(name)) {
+        dedicatedProxyGroups[group.name].proxies.push(name)
+      }
+    })
 
     // 尝试匹配地区
     for (const region of regionDefinitions) {
@@ -760,6 +806,19 @@ function main(config) {
       })
     }
   })
+
+  const generatedDedicatedGroups = dedicatedProxyGroupDefinitions
+    .map((g) => dedicatedProxyGroups[g.name])
+    .filter((g) => g.proxies.length > 0)
+    .map((g) => ({
+      ...groupBaseOption,
+      name: g.name,
+      type: 'url-test',
+      tolerance: 50,
+      icon: g.icon,
+      proxies: g.proxies,
+    }))
+  const dedicatedGroupNames = generatedDedicatedGroups.map((g) => g.name)
 
   const regionGroupNames = generatedRegionGroups.map((g) => g.name).sort()
 
@@ -805,6 +864,26 @@ function main(config) {
       let groupProxies
       if (svc.reject) {
         groupProxies = ['拒绝', '直连', '默认节点']
+      } else if (
+        svc.key === 'netflix' &&
+        dedicatedGroupNames.includes('NETFLIX专用')
+      ) {
+        groupProxies = uniqueList([
+          'NETFLIX专用',
+          '默认节点',
+          ...regionGroupNames,
+          '直连',
+        ])
+      } else if (
+        svc.key === 'games' &&
+        dedicatedGroupNames.includes('下载专用')
+      ) {
+        groupProxies = uniqueList([
+          '下载专用',
+          '直连',
+          '默认节点',
+          ...regionGroupNames,
+        ])
       } else if (svc.key === 'biliintl' || svc.key === 'bahamut') {
         groupProxies = ['默认节点', '直连', ...regionGroupNames]
       } else {
@@ -840,7 +919,14 @@ function main(config) {
       ...groupBaseOption,
       name: '下载软件',
       type: 'select',
-      proxies: ['直连', '拒绝', '默认节点', '国内网站', ...regionGroupNames],
+      proxies: uniqueList([
+        dedicatedGroupNames.includes('下载专用') ? '下载专用' : null,
+        '直连',
+        '拒绝',
+        '默认节点',
+        '国内网站',
+        ...regionGroupNames,
+      ]),
       icon: 'https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Download.png',
     },
     {
@@ -864,7 +950,7 @@ function main(config) {
   )
 
   // 3.5 组装最终结果
-  config['proxy-groups'] = [...functionalGroups, ...generatedRegionGroups.sort((a, b) =>
+  config['proxy-groups'] = [...functionalGroups, ...generatedDedicatedGroups, ...generatedRegionGroups.sort((a, b) =>
     a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
   )]
 

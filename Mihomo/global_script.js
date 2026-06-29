@@ -32,7 +32,8 @@ const _foreignIpDns = '8.8.8.8;94.140.14.14'
 
 const defaultArgs = {
   enable: true,
-  ruleSet: 'all',
+  ruleSet:
+    'apple;microsoft;github;google;openai;spotify;youtube;steam;tiktok;pixiv;biliintl;telegram;games;japan;ads',
   regionSet: 'all',
   interfaceName: '',
   excludeHighPercentage: true,
@@ -85,7 +86,7 @@ args = {
  */
 let {
   enable = args.enable || true,
-  ruleSet = args.ruleSet || 'all', // 支持 'all' 或 'openai,youtube,ads' 这种格式
+  ruleSet = args.ruleSet || defaultArgs.ruleSet, // 支持 'all' 或 'openai;youtube;ads' 这种格式
   regionSet = args.regionSet || 'all', // 匹配 regionDefinitions.name 前两个字母 (严格大小写)
   interfaceName = args.interfaceName || '',
   excludeHighPercentage = !!args.excludeHighPercentage || false,
@@ -245,7 +246,7 @@ const allRegionDefinitions = [
   {
     name: 'TW台湾',
     regex: /台湾|台灣|🇹🇼|tw|taiwan|tai wan/i,
-    icon: 'https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/China.png',
+    icon: 'https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Taiwan.png',
   },
   {
     name: 'GB英国',
@@ -351,6 +352,7 @@ const groupBaseOption = {
 }
 const dedicatedProxyGroupDefinitions = [
   {
+    key: 'netflix',
     name: 'NETFLIX专用',
     regex: /netflix|奈飞|网飞/i,
     icon: 'https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Netflix.png',
@@ -808,6 +810,7 @@ function main(config) {
   })
 
   const generatedDedicatedGroups = dedicatedProxyGroupDefinitions
+    .filter((g) => !g.key || ruleOptions[g.key])
     .map((g) => dedicatedProxyGroups[g.name])
     .filter((g) => g.proxies.length > 0)
     .map((g) => ({

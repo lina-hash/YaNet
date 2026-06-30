@@ -355,6 +355,7 @@ const dedicatedProxyGroupDefinitions = [
     key: 'netflix',
     name: 'NETFLIX专用',
     regex: /netflix|奈飞|网飞/i,
+    exclusive: true,
     icon: 'https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Netflix.png',
   },
   {
@@ -774,11 +775,17 @@ function main(config) {
       }
     }
 
-    dedicatedProxyGroupDefinitions.forEach((group) => {
-      if (group.regex.test(name)) {
-        dedicatedProxyGroups[group.name].proxies.push(name)
-      }
+    const matchedDedicatedGroups = dedicatedProxyGroupDefinitions.filter((group) =>
+      group.regex.test(name)
+    )
+    matchedDedicatedGroups.forEach((group) => {
+      dedicatedProxyGroups[group.name].proxies.push(name)
     })
+
+    if (matchedDedicatedGroups.some((group) => group.exclusive)) {
+      matched = true
+      continue
+    }
 
     // 尝试匹配地区
     for (const region of regionDefinitions) {
